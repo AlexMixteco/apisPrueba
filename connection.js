@@ -6,8 +6,8 @@ const pool = new Pool({
     password: '123',
     host: 'localhost',
     port: 5432,
-    database: 'grupo_EB',
-    ssl:true
+    database: 'grupo_EB'
+    //ssl:true
 
 });
 
