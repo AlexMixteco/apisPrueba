@@ -8,7 +8,7 @@ const pool = new Pool({
   database: process.env.DB_NAME,
   port: 5432,
   ssl: {
-    rejectUnauthorized: false // necesario para Render
+   require : true
   }
 });
 
