@@ -3,6 +3,19 @@ const app = express();
 const cors = require ('cors');
 app.use (cors());
 app.use(express.json());
+const multer = require('multer');
+
+
+const storage = multer.memoryStorage();
+const upload = multer({ 
+  storage,
+  limits: {
+    fieldSize: 20 * 1024 * 1024, 
+    fileSize: 10 * 1024 * 1024   // 10 MB por archivo
+  }
+});
+
+
 
 const db= require ('./connection');
 
@@ -10,116 +23,170 @@ const db= require ('./connection');
 // Insertar clientes 
 
 app.post("/api/clientes/insertar", async (req, res) => {
-    const { nombreEmpresa, impresion, razonSocial, rfc, email, telefono,  regimen, cfdi, estado, colonia, cp, calle, numeroExterior, numeroInterior } = req.body;
+    let {
+        nombreEmpresa,
+        impresion,
+        razonSocial,
+        rfc,
+        email,
+        telefono,
+        regimen,
+        cfdi,
+        estado,
+        colonia,
+        cp,
+        calle,
+        numeroExterior,
+        numeroInterior
+    } = req.body;
+
+    // Convertir a números o null si vienen vacíos o nulos
+    telefono = telefono ? Number(telefono) : null;
+    cp = cp ? Number(cp) : null;
+    numeroExterior = numeroExterior ? Number(numeroExterior) : null;
+    numeroInterior = numeroInterior ? Number(numeroInterior) : null;
+
     try {
-        const clienteinsertado = await db.query(
-            "INSERT INTO clientes (nombre_empresa, impresion, razon_social, rfc, email, telefono, regimen, cfdi, estado, colonia, cp, calle, num_ext, num_int) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *",
-            [nombreEmpresa, impresion, razonSocial, rfc, email, telefono, regimen, cfdi, estado, colonia, cp, calle, numeroExterior, numeroInterior]
+        const clienteInsertado = await db.query(
+            `INSERT INTO clientes 
+            (nombre_empresa, impresion, razon_social, rfc, email, telefono, regimen, cfdi, estado, colonia, cp, calle, num_ext, num_int)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+            RETURNING *`,
+            [
+                nombreEmpresa,
+                impresion,
+                razonSocial,
+                rfc,
+                email,
+                telefono,
+                regimen,
+                cfdi,
+                estado,
+                colonia,
+                cp,
+                calle,
+                numeroExterior,
+                numeroInterior
+            ]
         );
-        res.json(clienteinsertado.rows);
+        res.json(clienteInsertado.rows);
     } catch (error) {
         console.error("Error al insertar cliente:", error);
-        res.send("Error en el servidor");
+        res.status(500).send("Error en el servidor");
     }
 });
+
+
 
 //Insertar productos 
 
-app.post("/api/productos/insertar", async (req, res) => {
-    const { identificador, grabado, num_cliente, materialesClave, suajesNumsuaje, clave, fecha, descripcion, tipo, producto, guia, anchoInt, largoInt, altoInt, ceja, anchoCarton, largoCarton, marcas, pegado, tipoCarton, imagenFinal, imagenGrabado } = req.body;
-    try {
-        const productoinsertado = await db.query(
-            "INSERT INTO productos (identificador, grabado, clientes_num_cliente, materiales_clave, suajes_num_suaje, clave, fecha, descripcion, tipo, producto, guia, ancho_int, largo_int, alto_int, ceja, ancho_carton, largo_carton, marcas, pegado, tipo_carton, imagen_final, imagen_grabado) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,$13, $14, $15, $16, $17, $18, $19, $20, $21, $22) RETURNING *",
-            [identificador, grabado, num_cliente, materialesClave, suajesNumsuaje, clave, fecha, descripcion, tipo, producto, guia, anchoInt, largoInt, altoInt, ceja, anchoCarton, largoCarton, marcas, pegado, tipoCarton, imagenFinal, imagenGrabado]
-        );
-        res.json(productoinsertado.rows);
-    } catch (error) {
-        console.error("Error al insertar producto:", error);
-        res.send("Error en el servidor");
-    }
-});
-
-//Insertar pedidos 
-
-app.post("/api/pedidos/insertar", async (req, res) => {
-    const { noPedido, ordenCompraId, clientesNumcliente, productosIdentificador, fecha, observaciones, banco, anticipo, saldo, iva, cantidad, total, noCheque, precioUnitario, importe  } = req.body;
-    try {
-        const pedidoinsertado = await db.query(
-            "INSERT INTO pedidos (no_pedido, orden_compra_id, clientes_num_cliente, productos_identificador, fecha, observaciones, banco, anticipo, saldo, iva, cantidad, total, no_cheque, precio_unitario, importe) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *",
-            [noPedido, ordenCompraId, clientesNumcliente, productosIdentificador, fecha, observaciones, banco, anticipo, saldo, iva, cantidad, total, noCheque, precioUnitario, importe]
-        );
-        res.json(pedidoinsertado.rows);
-    } catch (error) {
-        console.error("Error al insertar cliente:", error);
-        res.send("Error en el servidor");
-    }
-});
-
-
-
-// Insertar proveedores 
-app.post("/api/proveedor/insertar", async (req, res) => {
-    const { nombre, ejecutivo_ventas, correo, categoria, telefono, estado, colonia, cp, calle, numero_exterior, numero_interior, rfc, cuenta_bancaria, banco, clabe, beneficiario } = req.body;
-    try {
-        const proveedorinsertado = await db.query(
-            "INSERT INTO proveedores (nombre, ejecutivo_ventas, correo, categoria, telefono, estado, colonia, cp, calle, numero_exterior, numero_interior, rfc, cuenta_bancaria, banco, clabe, beneficiario) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *",
-            [nombre, ejecutivo_ventas, correo, categoria, telefono, estado, colonia, cp, calle, numero_exterior, numero_interior, rfc, cuenta_bancaria, banco, clabe, beneficiario]
-        );
-        res.json(proveedorinsertado.rows);
-    } catch (error) {
-        console.error("Error al insertar:", error);
-        res.send("Error en el servidor");
-    }
-});
-
-
-// POST /api/tintas/insertar
-app.post('/api/tintas/insertar', async (req, res) => {
-  const { gcmi, nombre_tinta } = req.body
-
+app.post("/api/productos/insertar", upload.fields([
+  { name: 'imagenFinal' },
+  { name: 'imagenGrabado' },
+  { name: 'imagen' },
+  { name: 'imagenSuaje' }
+]), async (req, res) => {
   try {
-    const result = await db.query(
-      'INSERT INTO tintas (gcmi, nombre_tinta) VALUES ($1, $2) RETURNING *',
-      [gcmi, nombre_tinta]
-    )
-    res.json(result.rows[0])
-  } catch (error) {
-    console.error(error)
-    res.status(500).json({ error: error.message })
-  }
-})
+    const {
+      identificador, grabado, num_cliente, clave_material, suajesNumsuaje, clave,
+      fecha, descripcion, tipo, producto, guia, anchoInt, largoInt, altoInt, ceja,
+      anchoCarton, largoCarton, marcas, pegado,
+      ancho_suaje, largo_suaje, corto_sep, largo_sep, tintas
+    } = req.body;
 
+    const parseNumber = (value) => (value !== '' && value !== undefined ? parseFloat(value) : null);
 
-//Insertar grabados
-app.post("/api/grabados/insertar", async (req, res) => {
-    const {idGrabados, numSuaje , tintas, imagenGrabado} = req.body;
-    try {
-        const grabadoinsertar = await db.query(
-            "INSERT INTO grabados (idgrabados, num_suaje , tintas, imagen_grabado) VALUES ($1, $2, $3, $4) RETURNING *",
-          [idGrabados, numSuaje , tintas, imagenGrabado]
+    
+    const suajesNumsuajeNum = parseNumber(suajesNumsuaje);
+    const anchoIntNum = parseNumber(anchoInt);
+    const largoIntNum = parseNumber(largoInt);
+    const altoIntNum = parseNumber(altoInt);
+    const cejaNum = parseNumber(ceja);
+    const anchoCartonNum = parseNumber(anchoCarton);
+    const largoCartonNum = parseNumber(largoCarton);
+    const ancho_suajeNum = parseNumber(ancho_suaje);
+    const largo_suajeNum = parseNumber(largo_suaje);
+    const corto_sepNum = parseNumber(corto_sep);
+    const largo_sepNum = parseNumber(largo_sep);
+
+   
+    const imagenFinal = req.files['imagenFinal'] ? req.files['imagenFinal'][0].buffer : null;
+    const imagenGrabado = req.files['imagenGrabado'] ? req.files['imagenGrabado'][0].buffer : null;
+    const imagen = req.files['imagen'] ? req.files['imagen'][0].buffer : null;
+    const imagenSuaje = req.files['imagenSuaje'] ? req.files['imagenSuaje'][0].buffer : null;
+
+    
+    const productoinsertado = await db.query(
+      `INSERT INTO productos (
+        imagen_suaje, alto_int, ceja, ancho_carton, largo_carton,
+        imagen_final, imagen_grabado, ancho_suaje, largo_suaje,
+        corto_sep, largo_sep, imagen, suajes_num_suaje, fecha,
+        ancho_int, largo_int, grabado, clientes_num_cliente,
+        marcas, clave, pegado, descripcion, tipo, producto, guia,
+        identificador, clave_material
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+        $19,$20,$21,$22,$23,$24,$25,$26,$27
+      ) RETURNING identificador`,
+      [
+        imagenSuaje, altoIntNum, cejaNum, anchoCartonNum, largoCartonNum,
+        imagenFinal, imagenGrabado, ancho_suajeNum, largo_suajeNum,
+        corto_sepNum, largo_sepNum, imagen, suajesNumsuajeNum, fecha,
+        anchoIntNum, largoIntNum, grabado, num_cliente,
+        marcas, clave, pegado, descripcion, tipo, producto, guia,
+        identificador, clave_material
+      ]
+    );
+
+    const id_producto = productoinsertado.rows[0].identificador; 
+
+    
+    if (id_producto) {
+      const tintasArray = JSON.parse(tintas || '[]');
+      for (let id_tinta of tintasArray) {
+        const idTintaNum = parseNumber(id_tinta);
+        if (idTintaNum !== null) {
+          await db.query(
+            `INSERT INTO producto_tinta (id_producto, id_tinta) VALUES ($1, $2)`,
+            [id_producto, idTintaNum]
           );
-        res.json(grabadoinsertar.rows);
-    } catch (error) {
-        console.error("Error al insertar:", error);
-        res.send("Error en el servidor");
+        }
+      }
     }
+
+    res.json({ message: 'Producto insertado correctamente', producto: productoinsertado.rows[0] });
+
+  } catch (error) {
+    console.error("Error al insertar producto:", error);
+    res.status(500).send("Error en el servidor");
+  }
 });
 
 
 // Insertar Matriales 
 app.post("/api/materiales/insertar", async (req, res) => {
-    const {clave, material , tipo, flauta, resistencia, precio} = req.body;
-    try {
-        const grabadoinsertar = await db.query(
-            "INSERT INTO materiales (clave, material , tipo, flauta, resistencia, precio) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *",
-          [clave, material , tipo, flauta, resistencia, precio]
-          );
-        res.json(grabadoinsertar.rows);
-    } catch (error) {
-        console.error("Error al insertar:", error);
-        res.send("Error en el servidor");
-    }
+  let { clave, material, tipo, flauta, resistencia, precio, tipo_material, calibre, peso } = req.body;
+
+  // Convertir campos numéricos vacíos a null
+  resistencia = resistencia === '' ? null : Number(resistencia);
+  precio = precio === '' ? null : Number(precio);
+  calibre = calibre === '' ? null : Number(calibre);
+  peso = peso === '' ? null : Number(peso);
+
+  try {
+    await db.query(
+      `INSERT INTO materiales 
+        (clave, material, tipo, flauta, resistencia, precio, tipo_material, calibre, peso)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [clave, material, tipo, flauta, resistencia, precio, tipo_material, calibre, peso]
+    );
+    res.send("Material insertado correctamente");
+  } catch (error) {
+    console.error("Error al insertar:", error);
+    res.status(500).send("Error en el servidor");
+  }
 });
+
 
 // Insertar operaodr 
 app.post("/api/operador/insertar", async (req, res) => {
@@ -286,12 +353,28 @@ app.post("/api/vehiculos/insertar", async (req, res) => {
     }
 });
 
+// Insertar proveedores 
+app.post("/api/proveedor/insertar", async (req, res) => {
+    const { nombre, ejecutivo_ventas, correo, categoria, telefono, estado, colonia, cp, calle, numero_exterior, numero_interior, rfc, cuenta_bancaria, banco, clabe, beneficiario } = req.body;
+    try {
+        const proveedorinsertado = await db.query(
+            "INSERT INTO proveedores (nombre, ejecutivo_ventas, correo, categoria, telefono, estado, colonia, cp, calle, numero_exterior, numero_interior, rfc, cuenta_bancaria, banco, clabe, beneficiario) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *",
+            [nombre, ejecutivo_ventas, correo, categoria, telefono, estado, colonia, cp, calle, numero_exterior, numero_interior, rfc, cuenta_bancaria, banco, clabe, beneficiario]
+        );
+        res.json(proveedorinsertado.rows);
+    } catch (error) {
+        console.error("Error al insertar:", error);
+        res.send("Error en el servidor");
+    }
+});
+
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // Busqueda por id
 app.get('/api/producto/catalogo', async (req, res) => {
   try {
     const query = `
-      SELECT
+  SELECT
+    p.identificador,               -- <-- agregamos este campo
     c.nombre_empresa,
     c.impresion,
     p.fecha,
@@ -301,14 +384,13 @@ app.get('/api/producto/catalogo', async (req, res) => {
     p.ancho_int,
     p.largo_int,
     p.alto_int,
-    p.imagen_final,
-    p.tipo_carton,
+    encode(p.imagen_final, 'base64') AS imagen_final_base64,
     m.tipo AS material_tipo
-FROM productos p
-INNER JOIN clientes c ON p.clientes_num_cliente = c.num_cliente
-INNER JOIN materiales m ON p.clave_material = m.clave
-ORDER BY p.fecha ASC;
-    `;
+  FROM productos p
+  INNER JOIN clientes c ON p.clientes_num_cliente = c.num_cliente
+  INNER JOIN materiales m ON p.clave_material = m.clave
+  ORDER BY p.fecha ASC;
+`;
     const { rows } = await db.query(query);
     res.json(rows);
   } catch (error) {
@@ -385,16 +467,66 @@ app.get("/api/clientes/:num_cliente", async (req, res) => {
     }
 });
 
-// Productos
-app.get("/api/productos/:identificador", async (req, res) => {
-    const { identificador } = req.params;
-    try {
-        const resultado = await db.query("SELECT * FROM productos WHERE identificador = $1", [identificador]);
-        res.json(resultado.rows);
-    } catch (error) {
-        console.error("Error al obtener producto:", error);
-        res.send("Error en el servidor");
+app.get("/api/productos/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    // Consulta al producto por identificador
+    const resultado = await db.query("SELECT * FROM productos WHERE identificador = $1", [id]);
+    
+    if (resultado.rows.length === 0) {
+      return res.status(404).send("Producto no encontrado");
     }
+
+    const producto = resultado.rows[0];
+
+    // Convertir imágenes bytea a base64
+    const imagen1 = producto.imagen_final ? Buffer.from(producto.imagen_final).toString('base64') : null;
+    const imagen2 = producto.imagen_grabado ? Buffer.from(producto.imagen_grabado).toString('base64') : null;
+    const imagen3 = producto.imagen_suaje ? Buffer.from(producto.imagen_suaje).toString('base64') : null;
+    const imagen4 = producto.imagen ? Buffer.from(producto.imagen).toString('base64') : null;
+
+    // Construir objeto para frontend
+    const productoJson = {
+      ...producto,
+      imagen1,
+      imagen2,
+      imagen3,
+      imagen4
+    };
+
+    res.json([productoJson]);
+
+  } catch (error) {
+    console.error("Error al obtener producto:", error);
+    res.status(500).send("Error en el servidor");
+  }
+});
+
+
+app.get("/api/productos/tintas/:id", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const resultado = await db.query(
+      `SELECT t.id_tinta, t.nombre_tinta, t.gcmi
+       FROM producto_tinta pt
+       JOIN tintas t ON pt.id_tinta = t.id_tinta
+       JOIN productos p ON pt.id_producto = p.identificador
+       WHERE p.identificador = $1
+       ORDER BY t.id_tinta`,
+      [id]
+    );
+
+    if (resultado.rows.length === 0) {
+      return res.status(404).send("No se encontraron tintas para este producto");
+    }
+
+    res.json(resultado.rows);
+
+  } catch (error) {
+    console.error("Error al obtener tintas del producto:", error);
+    res.status(500).send("Error en el servidor");
+  }
 });
 
 // Pedidos
@@ -408,8 +540,6 @@ app.get("/api/pedidos/:no_pedido", async (req, res) => {
         res.send("Error en el servidor");
     }
 });
-
-
 
 // Domicilio_Proveedor
 app.get("/api/domicilioproveedores/:iddomicilio_proveedor", async (req, res) => {
@@ -611,20 +741,93 @@ app.put("/api/clientes/actualizar/:num_cliente", async (req, res) => {
 
 
 // Actualizar Productos
-app.put("/api/productos/:identificador", async (req, res) => {
+
+app.put("/api/productos/actualizar/:identificador", upload.fields([
+  { name: 'imagenFinal' },
+  { name: 'imagenGrabado' },
+  { name: 'imagen' },
+  { name: 'imagenSuaje' }
+]), async (req, res) => {
+  try {
     const { identificador } = req.params;
-    const { grabadosIdgrabados, clientesNumcliente, materialesClave, suajesNumsuaje, clave, fecha, descripcion, tipo, producto, guia, anchoInt, largoInt, altoInt, ceja, tintas, anchoCarton, largoCarton, marcas, pegado, imagenFinal, tipoCarton } = req.body;
-    try {
-        const resultado = await db.query(
-            "UPDATE productos SET grabados_idgrabados=$1, clientes_num_cliente=$2, materiales_clave=$3, suajes_num_suaje=$4, clave=$5, fecha=$6, descripcion=$7, tipo=$8, producto=$9, guia=$10, ancho_int=$11, largo_int=$12, alto_int=$13, ceja=$14, tintas=$15, ancho_carton=$16, largo_carton=$17, marcas=$18, pegado=$19, imagen_final=$20, tipo_carton=$21 WHERE identificador=$22 RETURNING *",
-            [grabadosIdgrabados, clientesNumcliente, materialesClave, suajesNumsuaje, clave, fecha, descripcion, tipo, producto, guia, anchoInt, largoInt, altoInt, ceja, tintas, anchoCarton, largoCarton, marcas, pegado, imagenFinal, tipoCarton, identificador]
-        );
-        res.json(resultado.rows[0]);
-    } catch (error) {
-        console.error("Error al actualizar producto:", error);
-        res.send("Error en el servidor");
+    const {
+      grabado, num_cliente, clave_material, suajes_num_suaje,
+      fecha, descripcion, tipo, producto, guia,
+      ancho_int, largo_int, alto_int, ceja,
+      ancho_carton, largo_carton, marcas, pegado,
+      ancho_suaje, largo_suaje, corto_sep, largo_sep, tintas
+    } = req.body;
+
+    // Función para parsear números
+    const parseNumber = value => (value !== '' && value !== undefined ? parseFloat(value) : null);
+
+    // Manejo opcional de imágenes
+    const imagenFinal = req.files['imagenFinal']?.[0]?.buffer;
+    const imagenGrabado = req.files['imagenGrabado']?.[0]?.buffer;
+    const imagen = req.files['imagen']?.[0]?.buffer;
+    const imagenSuaje = req.files['imagenSuaje']?.[0]?.buffer;
+
+    // Campos a actualizar
+    const camposActualizar = {
+      grabado,
+      num_cliente,
+      clave_material,
+      suajes_num_suaje: parseNumber(suajes_num_suaje),
+      fecha,
+      descripcion,
+      tipo,
+      producto,
+      guia,
+      ancho_int: parseNumber(ancho_int),
+      largo_int: parseNumber(largo_int),
+      alto_int: parseNumber(alto_int),
+      ceja: parseNumber(ceja),
+      ancho_carton: parseNumber(ancho_carton),
+      largo_carton: parseNumber(largo_carton),
+      marcas,
+      pegado,
+      ancho_suaje: parseNumber(ancho_suaje),
+      largo_suaje: parseNumber(largo_suaje),
+      corto_sep: parseNumber(corto_sep),
+      largo_sep: parseNumber(largo_sep)
+    };
+
+    // Agregar imágenes si se enviaron
+    if (imagenFinal) camposActualizar.imagen_final = imagenFinal;
+    if (imagenGrabado) camposActualizar.imagen_grabado = imagenGrabado;
+    if (imagen) camposActualizar.imagen = imagen;
+    if (imagenSuaje) camposActualizar.imagen_suaje = imagenSuaje;
+
+    // Eliminar campos undefined
+    Object.keys(camposActualizar).forEach(key => camposActualizar[key] === undefined && delete camposActualizar[key]);
+
+    // Construir query dinámico
+    const keys = Object.keys(camposActualizar);
+    if (keys.length > 0) {
+      const values = Object.values(camposActualizar);
+      const setString = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+      await db.query(`UPDATE productos SET ${setString} WHERE identificador = $${keys.length + 1}`, [...values, identificador]);
     }
+
+    // Actualizar tintas si se enviaron
+    if (tintas) {
+      const tintasArray = JSON.parse(tintas || '[]');
+      await db.query('DELETE FROM producto_tinta WHERE id_producto = $1', [identificador]);
+      for (let id_tinta of tintasArray) {
+        const idTintaNum = parseNumber(id_tinta);
+        if (idTintaNum !== null) {
+          await db.query('INSERT INTO producto_tinta (id_producto, id_tinta) VALUES ($1, $2)', [identificador, idTintaNum]);
+        }
+      }
+    }
+
+    res.json({ message: 'Producto actualizado correctamente' });
+  } catch (error) {
+    console.error("Error al actualizar producto:", error);
+    res.status(500).json({ error: "Error en el servidor al actualizar producto" });
+  }
 });
+
 
 
 // Actualizar Pedidos
@@ -910,6 +1113,8 @@ app.delete("/api/clientes/borrar/:num_cliente", async (req, res) => {
         res.status(500).send("Error en el servidor");
     }
 });
+
+
 // Productos
 app.delete("/api/productos/:identificador", async (req, res) => {
     const { identificador } = req.params;
@@ -947,17 +1152,6 @@ app.delete("/api/proveedores/borrar/:idproveedores", async (req, res) => {
     }
 });
 
-// Grabados
-app.delete("/api/grabados/:idgrabados", async (req, res) => {
-    const { idgrabados } = req.params;
-    try {
-        await db.query("DELETE FROM grabados WHERE idgrabados = $1", [idgrabados]);
-        res.send("Grabado eliminado correctamente");
-    } catch (error) {
-        console.error("Error al eliminar grabado:", error);
-        res.send("Error en el servidor");
-    }
-});
 
 // Materiales
 app.delete("/api/materiales/:clave", async (req, res) => {
@@ -1102,8 +1296,6 @@ app.delete("/api/vehiculos/:idvehiculos", async (req, res) => {
         res.send("Error en el servidor");
     }
 });
-
-
 
 
 app.listen(3000,(err)=>{
