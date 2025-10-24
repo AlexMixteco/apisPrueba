@@ -457,7 +457,7 @@ app.post("/api/utilidad/calcular", async (req, res) => {
       return res.status(400).json({ message: "Faltan parámetros (area o cantidad)" });
     }
 
-    // 1️⃣ Buscar categoría según el área
+   
     const categoriaQuery = `
       SELECT id, nombre
       FROM categoria_cajas
