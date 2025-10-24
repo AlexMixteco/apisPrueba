@@ -88,10 +88,10 @@ app.post("/api/productos/insertar", upload.fields([
 ]), async (req, res) => {
   try {
     const {
-      identificador, grabado, num_cliente, clave_material, suajesNumsuaje, clave,
+     grabado, num_cliente, clave_material, suajesNumsuaje, clave,
       fecha, descripcion, tipo, producto, guia, anchoInt, largoInt, altoInt, ceja,
       anchoCarton, largoCarton, marcas, pegado,
-      ancho_suaje, largo_suaje, corto_sep, largo_sep, tintas
+      ancho_suaje, largo_suaje, corto_sep, largo_sep, tintas, precio_unitario
     } = req.body;
 
     const parseNumber = (value) => (value !== '' && value !== undefined ? parseFloat(value) : null);
@@ -108,6 +108,7 @@ app.post("/api/productos/insertar", upload.fields([
     const largo_suajeNum = parseNumber(largo_suaje);
     const corto_sepNum = parseNumber(corto_sep);
     const largo_sepNum = parseNumber(largo_sep);
+    const precio_unitarioNum = parseNumber(precio_unitario);
 
    
     const imagenFinal = req.files['imagenFinal'] ? req.files['imagenFinal'][0].buffer : null;
@@ -123,10 +124,10 @@ app.post("/api/productos/insertar", upload.fields([
         corto_sep, largo_sep, imagen, suajes_num_suaje, fecha,
         ancho_int, largo_int, grabado, clientes_num_cliente,
         marcas, clave, pegado, descripcion, tipo, producto, guia,
-        identificador, clave_material
+        clave_material, precio_unitario
       ) VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-        $19,$20,$21,$22,$23,$24,$25,$26,$27
+        $19,$20,$21,$22,$23,$24,$25,$26, $27
       ) RETURNING identificador`,
       [
         imagenSuaje, altoIntNum, cejaNum, anchoCartonNum, largoCartonNum,
@@ -134,7 +135,7 @@ app.post("/api/productos/insertar", upload.fields([
         corto_sepNum, largo_sepNum, imagen, suajesNumsuajeNum, fecha,
         anchoIntNum, largoIntNum, grabado, num_cliente,
         marcas, clave, pegado, descripcion, tipo, producto, guia,
-        identificador, clave_material
+        clave_material, precio_unitarioNum
       ]
     );
 
@@ -161,6 +162,71 @@ app.post("/api/productos/insertar", upload.fields([
     res.status(500).send("Error en el servidor");
   }
 });
+
+
+app.post("/api/cotizaciones/insertar", async (req, res) => {
+  try {
+    const { num_cliente, fecha, productos } = req.body;
+
+    // Validar datos mínimos
+    if (!num_cliente || !productos || productos.length === 0) {
+      return res.status(400).json({ message: "Faltan datos obligatorios" });
+    }
+
+
+    // 1️⃣ Insertar cabecera en cotizaciones
+    const resultCotizacion = await db.query(
+      `INSERT INTO cotizaciones (num_cliente, fecha)
+       VALUES ($1, $2)
+       RETURNING id`,
+      [num_cliente, fecha || new Date()]
+    );
+
+    const idCotizacion = resultCotizacion.rows[0].id;
+
+    // 2️⃣ Insertar cada producto en detalle_cotizaciones
+    const insertDetalleQuery = `
+      INSERT INTO detalle_cotizaciones (
+        id_cotizacion, id_producto, cantidad,
+        precio_carton, precio_tintas, precio_maquina, precio_pegado,
+        precio_fijos, precio_utilidad, precio_otros, precio_envio,
+        precio_venta, precio_final
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13
+      )
+    `;
+
+    for (const p of productos) {
+      await db.query(insertDetalleQuery, [
+        idCotizacion,
+        p.idProducto,
+        parseFloat(p.cantidad) || 0,
+        parseFloat(p.totalCarton) || 0,
+        parseFloat(p.precioTintas) || 0,
+        parseFloat(p.precioMaquina) || 0,
+        parseFloat(p.precioPegadoFinal) || 0,
+        parseFloat(p.fijosCalculada) || 0,
+        parseFloat(p.utilidadCalculada) || 0,
+        parseFloat(p.otros) || 0,
+        parseFloat(p.envioCalculada) || 0,
+        parseFloat(p.precioVenta) || 0,
+        parseFloat(p.precioFinal) || 0
+      ]);
+    }
+
+    // 3️⃣ Respuesta final
+    res.json({
+      message: "Cotización y detalles insertados correctamente",
+      idCotizacion,
+    
+    });
+
+  } catch (error) {
+    console.error("❌ Error al insertar cotización:", error);
+    res.status(500).json({ message: "Error en el servidor", error: error.message });
+  }
+});
+
 
 
 // Insertar Matriales 
@@ -368,13 +434,117 @@ app.post("/api/proveedor/insertar", async (req, res) => {
     }
 });
 
+// Insertar tinta
+app.post("/api/tintas/insertar", async (req, res) => {
+    const { gcmi, nombre_tinta } = req.body;
+    try {
+        const tintaInsertada = await db.query(
+            "INSERT INTO tintas (gcmi, nombre_tinta) VALUES ($1, $2) RETURNING *",
+            [gcmi, nombre_tinta]
+        );
+        res.json(tintaInsertada.rows);
+    } catch (error) {
+        console.error("Error al insertar tinta:", error);
+        res.send("Error en el servidor");
+    }
+});
+
+app.post("/api/utilidad/calcular", async (req, res) => {
+  try {
+    const { area, cantidad } = req.body;
+
+    if (!area || !cantidad) {
+      return res.status(400).json({ message: "Faltan parámetros (area o cantidad)" });
+    }
+
+    // 1️⃣ Buscar categoría según el área
+    const categoriaQuery = `
+      SELECT id, nombre
+      FROM categoria_cajas
+      WHERE $1 BETWEEN area_min AND area_max
+      LIMIT 1
+    `;
+    const categoriaResult = await db.query(categoriaQuery, [area]);
+    const categoria = categoriaResult.rows[0];
+
+    if (!categoria) {
+      return res.status(404).json({ message: "No se encontró categoría para el área" });
+    }
+
+    // 2️⃣ Buscar todas las utilidades de esa categoría
+    const utilidadesQuery = `
+      SELECT rango, precio
+      FROM utilidades
+      WHERE categoria_id = $1
+    `;
+    const utilidadesResult = await db.query(utilidadesQuery, [categoria.id]);
+    const utilidades = utilidadesResult.rows;
+
+    // 3️⃣ Determinar el rango correcto según la cantidad
+    let precioUtilidad = 0;
+    let rangoSeleccionado = "";
+
+    for (const u of utilidades) {
+      const rango = u.rango.trim();
+
+      if (rango.startsWith("<")) {
+        const max = parseInt(rango.replace("<", ""));
+        if (cantidad < max) {
+          precioUtilidad = parseFloat(u.precio);
+          rangoSeleccionado = rango;
+          break;
+        }
+      } else if (rango.startsWith(">=")) {
+        const min = parseInt(rango.replace(">=", ""));
+        if (cantidad >= min) {
+          precioUtilidad = parseFloat(u.precio);
+          rangoSeleccionado = rango;
+          break;
+        }
+      } else if (rango.includes("-")) {
+        const [min, max] = rango.split("-").map(n => parseInt(n));
+        if (cantidad >= min && cantidad <= max) {
+          precioUtilidad = parseFloat(u.precio);
+          rangoSeleccionado = rango;
+          break;
+        }
+      }
+    }
+
+    // 4️⃣ Responder al frontend
+    res.json({
+      categoria: categoria.nombre,
+      rango: rangoSeleccionado,
+      precioUtilidad,
+    });
+
+  } catch (error) {
+    console.error("Error al calcular utilidad:", error);
+    res.status(500).json({ message: "Error interno del servidor", error: error.message });
+  }
+});
+
+
+
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 // Busqueda por id
+app.get("/api/buscarTabla/:tabla", async (request, response) => {
+    try {
+        const { tabla } = request.params;
+        console.log(`SELECT * FROM ${tabla}`);
+        const resultado = await db.query(`SELECT * FROM ${tabla}`);
+        console.log(resultado.rows);
+        response.json(resultado.rows); 
+    } catch (error) {
+        console.log(error);
+    }
+});
+
 app.get('/api/producto/catalogo', async (req, res) => {
   try {
     const query = `
   SELECT
-    p.identificador,               -- <-- agregamos este campo
+    p.identificador,               
     c.nombre_empresa,
     c.impresion,
     p.fecha,
@@ -443,17 +613,16 @@ app.get("/api/productos", async (req, res) => {
     }
 });
 
-app.get("/api/buscarTabla/:tabla", async (request, response) => {
+app.get("/api/porcentajeCantidad", async (req, res) => {
     try {
-        const { tabla } = request.params;
-        console.log(`SELECT * FROM ${tabla}`);
-        const resultado = await db.query(`SELECT * FROM ${tabla}`);
-        console.log(resultado.rows);
-        response.json(resultado.rows); 
+        const resultado = await db.query("SELECT * FROM porcentaje_cantidad");
+        res.json(resultado.rows);
     } catch (error) {
-        console.log(error);
+        console.error("Error al obtener porcentaje:", error);
+        res.status(500).send("Error en el servidor");
     }
 });
+
 
 // Clientes
 app.get("/api/clientes/:num_cliente", async (req, res) => {
@@ -480,18 +649,18 @@ app.get("/api/productos/:id", async (req, res) => {
     const producto = resultado.rows[0];
 
     // Convertir imágenes bytea a base64
-    const imagen1 = producto.imagen_final ? Buffer.from(producto.imagen_final).toString('base64') : null;
-    const imagen2 = producto.imagen_grabado ? Buffer.from(producto.imagen_grabado).toString('base64') : null;
-    const imagen3 = producto.imagen_suaje ? Buffer.from(producto.imagen_suaje).toString('base64') : null;
-    const imagen4 = producto.imagen ? Buffer.from(producto.imagen).toString('base64') : null;
+    const imagenFinal = producto.imagen_final ? Buffer.from(producto.imagen_final).toString('base64') : null;
+    const imagenGrabado = producto.imagen_grabado ? Buffer.from(producto.imagen_grabado).toString('base64') : null;
+    const imagenSuaje = producto.imagen_suaje ? Buffer.from(producto.imagen_suaje).toString('base64') : null;
+    const imagenBase = producto.imagen ? Buffer.from(producto.imagen).toString('base64') : null;
 
     // Construir objeto para frontend
     const productoJson = {
       ...producto,
-      imagen1,
-      imagen2,
-      imagen3,
-      imagen4
+      imagenFinal,
+      imagenGrabado,
+      imagenSuaje,
+      imagenBase
     };
 
     res.json([productoJson]);
@@ -721,6 +890,163 @@ app.get("/api/vehiculos/:idvehiculos", async (req, res) => {
     }
 });
 
+// Obtener cotización por id
+app.get('/api/buscarTabla/cotizaciones/:id', async (req, res) => {
+  const { id } = req.params
+
+  // Validar que sea un número válido
+  const idNum = parseInt(id)
+  if (isNaN(idNum)) {
+    return res.status(400).json({ error: 'ID de cotización inválido' })
+  }
+
+  try {
+    const resultado = await db.query('SELECT * FROM cotizaciones WHERE id = $1', [idNum])
+
+    if (!resultado.rows || resultado.rows.length === 0) {
+      return res.status(404).json({ error: 'No se encontró la cotización' })
+    }
+
+    res.json(resultado.rows[0])
+  } catch (error) {
+    console.error('Error al obtener la cotización:', error)
+    res.status(500).json({ error: 'Error interno del servidor' })
+  }
+})
+
+app.get('/api/detalleCotizaciones/:id_cotizacion', async (req, res) => {
+  const { id_cotizacion } = req.params;
+  try {
+    // Consulta principal para detalle de cotización + producto + material
+    const resultado = await db.query(`
+      SELECT 
+        dc.id,
+        dc.id_cotizacion,
+        dc.id_producto,
+        dc.cantidad,
+        dc.precio_final,
+        p.producto,
+        CONCAT(p.largo_int, 'x', p.ancho_int, 'x', p.alto_int) AS medidas,
+        m.tipo AS material_tipo,
+        m.material AS material_nombre,
+        m.resistencia,
+        m.flauta AS material_flauta,
+        m.calibre,
+        m.peso
+      FROM detalle_cotizaciones dc
+      JOIN productos p ON dc.id_producto = p.identificador
+      LEFT JOIN materiales m ON p.clave_material = m.clave
+      WHERE dc.id_cotizacion = $1
+    `, [id_cotizacion]);
+
+    // Para cada producto, obtenemos las tintas
+    const detalleConTintas = await Promise.all(resultado.rows.map(async (item) => {
+      const { rows: tintas } = await db.query(`
+        SELECT t.id_tinta, t.gcmi, t.nombre_tinta
+        FROM producto_tinta pt
+        JOIN tintas t ON pt.id_tinta = t.id_tinta
+        WHERE pt.id_producto = $1
+      `, [item.id_producto]);
+
+      return {
+        ...item,
+        tintas
+      };
+    }));
+
+    res.json(detalleConTintas);
+  } catch (error) {
+    console.error('Error al obtener detalle de cotización:', error);
+    res.status(500).json({ error: 'Error al obtener detalle de cotización' });
+  }
+});
+
+
+
+// GET /api/productos/por-cliente/:clienteId
+app.get('/api/productos/por-cliente/:clienteId', async (req, res) => {
+  const clienteId = req.params.clienteId?.trim().toUpperCase(); // limpiar y normalizar
+
+  if (!clienteId) return res.json([]); // cliente no enviado → arreglo vacío
+
+  try {
+    const query = `
+      SELECT *
+      FROM productos
+      WHERE TRIM(UPPER(clientes_num_cliente)) = $1
+      ORDER BY producto ASC
+    `;
+    const { rows } = await db.query(query, [clienteId]);
+
+    res.json(rows); // devuelve [] si no hay productos
+  } catch (error) {
+    console.error('Error al obtener productos por cliente:', error);
+    res.status(500).json({ message: 'Error al obtener productos' });
+  }
+});
+
+app.get('/api/utilidades', async (req, res) => {
+  try {
+    const query = `
+      SELECT 
+        u.id,
+        c.nombre AS categoria,
+        u.rango,
+        u.precio
+      FROM utilidades u
+      INNER JOIN categoria_cajas c
+        ON u.categoria_id = c.id
+      ORDER BY u.categoria_id, u.id
+    `;
+
+    const result = await db.query(query);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error al obtener utilidades:', error);
+    res.status(500).json({ message: 'Error en el servidor', error: error.message });
+  }
+});
+
+//obtener datos cotizacion 
+app.get('/api/cotizaciones/detalle/:idCotizacion', async (req, res) => {
+  try {
+    const { idCotizacion } = req.params;
+
+    const query = `
+      SELECT 
+        p.identificador as id_producto,
+        p.producto,
+        p.largo_int,
+        p.ancho_int, 
+        p.alto_int,
+        p.clave_material,
+        m.calibre,
+        dc.cantidad,
+        dc.precio_final AS precio_unitario,
+        CONCAT(p.largo_int, ' x ', p.ancho_int, ' x ', p.alto_int) AS medidas,
+        COALESCE(pt.cantidad_tintas, 0) AS tintas
+      FROM detalle_cotizaciones dc
+      INNER JOIN productos p ON dc.id_producto = p.identificador
+      INNER JOIN materiales m ON p.clave_material = m.clave
+      LEFT JOIN (
+        SELECT id_producto, COUNT(*) as cantidad_tintas 
+        FROM producto_tinta 
+        GROUP BY id_producto
+      ) pt ON p.identificador = pt.id_producto
+      WHERE dc.id_cotizacion = $1
+    `;
+
+    const { rows } = await db.query(query, [idCotizacion]);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error al traer productos:', error);
+    res.status(500).json({ error: 'Error al traer productos' });
+  }
+});
+
+
+
+
 //-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 // Actualizar Clientes
@@ -739,35 +1065,86 @@ app.put("/api/clientes/actualizar/:num_cliente", async (req, res) => {
     }
 });
 
+app.put("/api/porcentajeCantidad/actualizar/:id", async (req, res) => {
+  const { id } = req.params;
+  const { porcentaje } = req.body;
+
+  try {
+    const resultado = await db.query(
+      "UPDATE porcentaje_cantidad SET porcentaje = $1 WHERE id = $2 RETURNING *",
+      [porcentaje, id]
+    );
+
+    if (resultado.rowCount === 0) {
+      return res.status(404).send("No se encontró el porcentaje con ese ID");
+    }
+
+    res.json(resultado.rows[0]);
+  } catch (error) {
+    console.error("Error al actualizar porcentaje:", error);
+    res.status(500).send("Error en el servidor");
+  }
+});
+
+app.put("/api/general/actualizar/:tabla/:id", async (req, res) => {
+  const { tabla, id } = req.params;
+  const { precio } = req.body;
+
+  
+  const tablasPermitidas = [
+    "tinta_cantidad",
+    "maquina_cantidad",
+    "pegado_cantidad",
+    "envio_cantidad",
+    "fijos_cantidad",
+    "utilidades"
+  ];
+
+  if (!tablasPermitidas.includes(tabla)) {
+    return res.status(400).send("Tabla no permitida");
+  }
+
+  try {
+    const query = `UPDATE ${tabla} SET precio = $1 WHERE id = $2 RETURNING *`;
+    const resultado = await db.query(query, [precio, id]);
+
+    if (resultado.rowCount === 0) {
+      return res.status(404).send("No se encontró el registro con ese ID");
+    }
+
+    res.json(resultado.rows[0]);
+  } catch (error) {
+    console.error("Error al actualizar precio:", error);
+    res.status(500).send("Error en el servidor");
+  }
+});
+
+
+
 
 // Actualizar Productos
 
 app.put("/api/productos/actualizar/:identificador", upload.fields([
   { name: 'imagenFinal' },
   { name: 'imagenGrabado' },
-  { name: 'imagen' },
+  { name: 'imagenBase' },
   { name: 'imagenSuaje' }
 ]), async (req, res) => {
+  const { identificador } = req.params;
+
   try {
-    const { identificador } = req.params;
     const {
       grabado, num_cliente, clave_material, suajes_num_suaje,
       fecha, descripcion, tipo, producto, guia,
       ancho_int, largo_int, alto_int, ceja,
       ancho_carton, largo_carton, marcas, pegado,
-      ancho_suaje, largo_suaje, corto_sep, largo_sep, tintas
+      ancho_suaje, largo_suaje, corto_sep, largo_sep, tintas, precio_unitario
     } = req.body;
 
-    // Función para parsear números
+    // Función para convertir a número o null
     const parseNumber = value => (value !== '' && value !== undefined ? parseFloat(value) : null);
 
-    // Manejo opcional de imágenes
-    const imagenFinal = req.files['imagenFinal']?.[0]?.buffer;
-    const imagenGrabado = req.files['imagenGrabado']?.[0]?.buffer;
-    const imagen = req.files['imagen']?.[0]?.buffer;
-    const imagenSuaje = req.files['imagenSuaje']?.[0]?.buffer;
-
-    // Campos a actualizar
+    // Preparar campos a actualizar
     const camposActualizar = {
       grabado,
       num_cliente,
@@ -789,17 +1166,20 @@ app.put("/api/productos/actualizar/:identificador", upload.fields([
       ancho_suaje: parseNumber(ancho_suaje),
       largo_suaje: parseNumber(largo_suaje),
       corto_sep: parseNumber(corto_sep),
-      largo_sep: parseNumber(largo_sep)
+      largo_sep: parseNumber(largo_sep),
+      precio_unitario: parseNumber(precio_unitario)
     };
 
-    // Agregar imágenes si se enviaron
-    if (imagenFinal) camposActualizar.imagen_final = imagenFinal;
-    if (imagenGrabado) camposActualizar.imagen_grabado = imagenGrabado;
-    if (imagen) camposActualizar.imagen = imagen;
-    if (imagenSuaje) camposActualizar.imagen_suaje = imagenSuaje;
+    // Manejo opcional de imágenes
+    if (req.files['imagenFinal']) camposActualizar.imagen_final = req.files['imagenFinal'][0].buffer;
+    if (req.files['imagenGrabado']) camposActualizar.imagen_grabado = req.files['imagenGrabado'][0].buffer;
+    if (req.files['imagenBase']) camposActualizar.imagen = req.files['imagenBase'][0].buffer;
+    if (req.files['imagenSuaje']) camposActualizar.imagen_suaje = req.files['imagenSuaje'][0].buffer;
 
     // Eliminar campos undefined
-    Object.keys(camposActualizar).forEach(key => camposActualizar[key] === undefined && delete camposActualizar[key]);
+    Object.keys(camposActualizar).forEach(key => {
+      if (camposActualizar[key] === undefined) delete camposActualizar[key];
+    });
 
     // Construir query dinámico
     const keys = Object.keys(camposActualizar);
@@ -809,24 +1189,36 @@ app.put("/api/productos/actualizar/:identificador", upload.fields([
       await db.query(`UPDATE productos SET ${setString} WHERE identificador = $${keys.length + 1}`, [...values, identificador]);
     }
 
-    // Actualizar tintas si se enviaron
-    if (tintas) {
-      const tintasArray = JSON.parse(tintas || '[]');
-      await db.query('DELETE FROM producto_tinta WHERE id_producto = $1', [identificador]);
-      for (let id_tinta of tintasArray) {
-        const idTintaNum = parseNumber(id_tinta);
-        if (idTintaNum !== null) {
-          await db.query('INSERT INTO producto_tinta (id_producto, id_tinta) VALUES ($1, $2)', [identificador, idTintaNum]);
+    // Actualizar tintas (solo si se envían)
+    if (tintas !== undefined) {
+      const tintasArray = JSON.parse(tintas);
+      if (Array.isArray(tintasArray)) {
+        // Primero eliminar las existentes
+        await db.query('DELETE FROM producto_tinta WHERE id_producto = $1', [identificador]);
+
+        // Insertar nuevas
+        for (let id_tinta of tintasArray) {
+          const idTintaNum = parseNumber(id_tinta);
+          if (idTintaNum !== null) {
+            await db.query('INSERT INTO producto_tinta (id_producto, id_tinta) VALUES ($1, $2)', [identificador, idTintaNum]);
+          }
         }
       }
     }
 
+    // ✅ Solo se envía la respuesta una vez
     res.json({ message: 'Producto actualizado correctamente' });
+
   } catch (error) {
     console.error("Error al actualizar producto:", error);
-    res.status(500).json({ error: "Error en el servidor al actualizar producto" });
+
+    // Evitar enviar respuesta si ya se envió
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Error en el servidor al actualizar producto" });
+    }
   }
 });
+
 
 
 
@@ -885,18 +1277,41 @@ app.put("/api/grabados/:idgrabados", async (req, res) => {
 // Actualizar Materiales
 
 app.put("/api/materiales/:clave", async (req, res) => {
-    const { clave } = req.params;
-    const { material, tipo, flauta, resistencia, precio } = req.body;
-    try {
-        const resultado = await db.query(
-            "UPDATE materiales SET material=$1, tipo=$2, flauta=$3, resistencia=$4, precio=$5 WHERE clave=$6 RETURNING *",
-            [material, tipo, flauta, resistencia, precio, clave]
-        );
-        res.json(resultado.rows[0]);
-    } catch (error) {
-        console.error("Error al actualizar material:", error);
-        res.send("Error en el servidor");
+  const { clave } = req.params;
+  const {
+    material,
+    tipo,
+    flauta,
+    resistencia,
+    precio,
+    tipo_material,
+    calibre,
+    peso
+  } = req.body;
+
+  // Validación básica (puedes ajustar según qué campos sean obligatorios)
+  if (!material || !tipo || !flauta || !resistencia || precio === undefined) {
+    return res.status(400).json({ error: "Faltan campos obligatorios" });
+  }
+
+  try {
+    const resultado = await db.query(
+      `UPDATE materiales 
+       SET material=$1, tipo=$2, flauta=$3, resistencia=$4, precio=$5,
+           tipo_material=$6, calibre=$7, peso=$8
+       WHERE clave=$9 RETURNING *`,
+      [material, tipo, flauta, resistencia, precio, tipo_material, calibre, peso, clave]
+    );
+
+    if (resultado.rows.length === 0) {
+      return res.status(404).json({ error: "Material no encontrado" });
     }
+
+    res.json(resultado.rows[0]);
+  } catch (error) {
+    console.error("Error al actualizar material:", error);
+    res.status(500).json({ error: "Error en el servidor" });
+  }
 });
 
 
@@ -1095,6 +1510,24 @@ app.put("/api/vehiculos/:idvehiculos", async (req, res) => {
     }
 });
 
+app.put('/api/categoria_cajas/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { area_min, area_max } = req.body;
+    const query = `
+      UPDATE categoria_cajas
+      SET area_min = $1, area_max = $2
+      WHERE id = $3
+      RETURNING *;
+    `;
+    const result = await db.query(query, [area_min, area_max, id]);
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error al actualizar caja:', error);
+    res.status(500).json({ message: 'Error en el servidor' });
+  }
+});
+
 
 //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -1123,7 +1556,13 @@ app.delete("/api/productos/:identificador", async (req, res) => {
         res.send("Producto eliminado correctamente");
     } catch (error) {
         console.error("Error al eliminar producto:", error);
-        res.send("Error en el servidor");
+        if (error.code === "23503") { // FK violation
+      res.status(409).send(
+        "No se puede eliminar este producto porque está siendo usado en otra parte"
+      );
+    } else {
+      res.status(500).send("Error en el servidor");
+    }
     }
 });
 
@@ -1154,16 +1593,24 @@ app.delete("/api/proveedores/borrar/:idproveedores", async (req, res) => {
 
 
 // Materiales
-app.delete("/api/materiales/:clave", async (req, res) => {
-    const { clave } = req.params;
-    try {
-        await db.query("DELETE FROM materiales WHERE clave = $1", [clave]);
-        res.send("Material eliminado correctamente");
-    } catch (error) {
-        console.error("Error al eliminar material:", error);
-        res.send("Error en el servidor");
+app.delete("/api/materiales/borrar/:clave", async (req, res) => {
+  const { clave } = req.params;
+  try {
+    await db.query("DELETE FROM materiales WHERE clave = $1", [clave]);
+    res.status(200).send("Material eliminado correctamente");
+  } catch (error) {
+    console.error("Error al eliminar material:", error);
+
+    if (error.code === "23503") { // FK violation
+      res.status(409).send(
+        "No se puede eliminar este material porque está siendo usado en otra parte"
+      );
+    } else {
+      res.status(500).send("Error en el servidor");
     }
+  }
 });
+
 
 // Operador
 app.delete("/api/operador/:idoperador", async (req, res) => {
@@ -1296,6 +1743,37 @@ app.delete("/api/vehiculos/:idvehiculos", async (req, res) => {
         res.send("Error en el servidor");
     }
 });
+
+app.delete("/api/tintas/borrar/:id_tinta", async (req, res) => {
+    const { id_tinta } = req.params;
+    try {
+        await db.query("DELETE FROM tintas WHERE id_tinta = $1", [id_tinta]);
+        res.send("Tinta eliminada correctamente");
+    } catch (error) {
+        console.error("Error al eliminar tinta:", error);
+        res.send("Error en el servidor");
+    }
+});
+
+app.delete("/api/cotizaciones/borrar/:id", async (req, res) => {
+    const { id } = req.params;
+
+    try {
+        // Ejecutar la eliminación en la tabla cotizaciones
+        const result = await db.query("DELETE FROM cotizaciones WHERE id = $1", [id]);
+
+        // Puedes comprobar si se eliminó alguna fila
+        if (result.rowCount === 0) {
+            return res.status(404).send("Cotización no encontrada");
+        }
+
+        res.send("Cotización eliminada correctamente");
+    } catch (error) {
+        console.error("Error al eliminar cotización:", error);
+        res.status(500).send("Error en el servidor");
+    }
+});
+
 
 
 app.listen(3000,(err)=>{
